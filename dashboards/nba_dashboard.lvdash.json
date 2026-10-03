@@ -1,0 +1,297 @@
+{
+  "datasets": [
+    {
+      "name": "standings",
+      "displayName": "Standings (latest season)",
+      "queryLines": [
+        "SELECT league_rank, team, record, win_pct, home_win_pct, road_win_pct, ",
+        "       points_pg, opp_points_pg, diff_points_pg, last10, streak ",
+        "FROM team_standings ",
+        "WHERE season_year = (SELECT max(season_year) FROM team_standings) ",
+        "ORDER BY league_rank"
+      ]
+    },
+    {
+      "name": "results",
+      "displayName": "Latest results",
+      "queryLines": [
+        "SELECT game_date, season_type, game_label, score_line, winner, margin ",
+        "FROM game_results ",
+        "ORDER BY game_date DESC, game_id DESC ",
+        "LIMIT 25"
+      ]
+    },
+    {
+      "name": "scoring",
+      "displayName": "Scoring per day",
+      "queryLines": [
+        "SELECT game_date, count(*) AS games, round(avg(total_points), 1) AS avg_total_points ",
+        "FROM game_results ",
+        "WHERE season_type = 'Regular Season' ",
+        "  AND season_year = (SELECT max(season_year) FROM game_results WHERE season_type = 'Regular Season') ",
+        "GROUP BY game_date ",
+        "ORDER BY game_date"
+      ]
+    },
+    {
+      "name": "summary",
+      "displayName": "Summary",
+      "queryLines": [
+        "SELECT (SELECT team FROM team_standings ORDER BY season_year DESC, league_rank LIMIT 1) AS best_team, ",
+        "       (SELECT count(*) FROM game_results) AS games_loaded, ",
+        "       (SELECT max(game_date) FROM game_results) AS latest_game"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "overview",
+      "displayName": "NBA Games & Standings",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## NBA games & standings\n",
+                "Source: ESPN scoreboard API -> bronze -> silver -> gold. Standings are computed from game results."
+              ]
+            }
+          },
+          "position": { "x": 0, "y": 0, "width": 6, "height": 2 }
+        },
+        {
+          "widget": {
+            "name": "kpi_best_team",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary",
+                  "fields": [{ "name": "best_team", "expression": "`best_team`" }],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": { "fieldName": "best_team", "displayName": "Best record" }
+              },
+              "frame": { "showTitle": true, "title": "Best record" }
+            }
+          },
+          "position": { "x": 0, "y": 2, "width": 2, "height": 3 }
+        },
+        {
+          "widget": {
+            "name": "kpi_games",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary",
+                  "fields": [{ "name": "games_loaded", "expression": "`games_loaded`" }],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": { "fieldName": "games_loaded", "displayName": "Games loaded" }
+              },
+              "frame": { "showTitle": true, "title": "Games loaded" }
+            }
+          },
+          "position": { "x": 2, "y": 2, "width": 2, "height": 3 }
+        },
+        {
+          "widget": {
+            "name": "kpi_latest_game",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary",
+                  "fields": [{ "name": "latest_game", "expression": "`latest_game`" }],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": { "fieldName": "latest_game", "displayName": "Latest game" }
+              },
+              "frame": { "showTitle": true, "title": "Latest game" }
+            }
+          },
+          "position": { "x": 4, "y": 2, "width": 2, "height": 3 }
+        },
+        {
+          "widget": {
+            "name": "bar_win_pct",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "standings",
+                  "fields": [
+                    { "name": "team", "expression": "`team`" },
+                    { "name": "win_pct", "expression": "`win_pct`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "team",
+                  "scale": { "type": "categorical", "sort": { "by": "y-reversed" } },
+                  "displayName": "Team"
+                },
+                "y": {
+                  "fieldName": "win_pct",
+                  "scale": { "type": "quantitative" },
+                  "displayName": "Win %"
+                }
+              },
+              "frame": { "showTitle": true, "title": "Win % by team" }
+            }
+          },
+          "position": { "x": 0, "y": 5, "width": 6, "height": 8 }
+        },
+        {
+          "widget": {
+            "name": "line_scoring",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "scoring",
+                  "fields": [
+                    { "name": "game_date", "expression": "`game_date`" },
+                    { "name": "avg_total_points", "expression": "`avg_total_points`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "game_date",
+                  "scale": { "type": "temporal" },
+                  "displayName": "Date"
+                },
+                "y": {
+                  "fieldName": "avg_total_points",
+                  "scale": { "type": "quantitative" },
+                  "displayName": "Avg total points per game"
+                }
+              },
+              "frame": { "showTitle": true, "title": "Scoring: average total points per game, by day" }
+            }
+          },
+          "position": { "x": 0, "y": 13, "width": 6, "height": 7 }
+        },
+        {
+          "widget": {
+            "name": "table_standings",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "standings",
+                  "fields": [
+                    { "name": "league_rank", "expression": "`league_rank`" },
+                    { "name": "team", "expression": "`team`" },
+                    { "name": "record", "expression": "`record`" },
+                    { "name": "win_pct", "expression": "`win_pct`" },
+                    { "name": "home_win_pct", "expression": "`home_win_pct`" },
+                    { "name": "road_win_pct", "expression": "`road_win_pct`" },
+                    { "name": "points_pg", "expression": "`points_pg`" },
+                    { "name": "opp_points_pg", "expression": "`opp_points_pg`" },
+                    { "name": "diff_points_pg", "expression": "`diff_points_pg`" },
+                    { "name": "last10", "expression": "`last10`" },
+                    { "name": "streak", "expression": "`streak`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  { "fieldName": "league_rank", "displayName": "#" },
+                  { "fieldName": "team", "displayName": "Team" },
+                  { "fieldName": "record", "displayName": "W-L" },
+                  { "fieldName": "win_pct", "displayName": "Win %" },
+                  { "fieldName": "home_win_pct", "displayName": "Home %" },
+                  { "fieldName": "road_win_pct", "displayName": "Road %" },
+                  { "fieldName": "points_pg", "displayName": "Pts / g" },
+                  { "fieldName": "opp_points_pg", "displayName": "Opp pts / g" },
+                  { "fieldName": "diff_points_pg", "displayName": "Diff / g" },
+                  { "fieldName": "last10", "displayName": "Last 10" },
+                  { "fieldName": "streak", "displayName": "Streak" }
+                ]
+              },
+              "frame": { "showTitle": true, "title": "Standings (latest season)" }
+            }
+          },
+          "position": { "x": 0, "y": 20, "width": 6, "height": 12 }
+        },
+        {
+          "widget": {
+            "name": "table_results",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "results",
+                  "fields": [
+                    { "name": "game_date", "expression": "`game_date`" },
+                    { "name": "season_type", "expression": "`season_type`" },
+                    { "name": "game_label", "expression": "`game_label`" },
+                    { "name": "score_line", "expression": "`score_line`" },
+                    { "name": "winner", "expression": "`winner`" },
+                    { "name": "margin", "expression": "`margin`" }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  { "fieldName": "game_date", "displayName": "Date" },
+                  { "fieldName": "season_type", "displayName": "Type" },
+                  { "fieldName": "game_label", "displayName": "Game" },
+                  { "fieldName": "score_line", "displayName": "Score" },
+                  { "fieldName": "winner", "displayName": "Winner" },
+                  { "fieldName": "margin", "displayName": "Margin" }
+                ]
+              },
+              "frame": { "showTitle": true, "title": "Latest results" }
+            }
+          },
+          "position": { "x": 0, "y": 32, "width": 6, "height": 10 }
+        }
+      ]
+    }
+  ]
+}

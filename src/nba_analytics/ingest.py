@@ -1,65 +1,67 @@
-"""Fetch NBA league standings from nba_api and shape them for the bronze layer.
+"""Fetch NBA games from ESPN's public scoreboard API and shape them for bronze.
 
-Endpoint: stats.nba.com `leaguestandingsv3` (one call -> one row per team).
+stats.nba.com / cdn.nba.com block cloud IP ranges (incl. Databricks on Azure),
+so the pipeline uses ESPN's unofficial site API instead. It is undocumented and
+may change without notice.
 """
 from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime, timedelta, timezone
 
-import pandas as pd
+import requests
 
-ENDPOINT = "leaguestandingsv3"
+ENDPOINT = "espn_scoreboard"
+SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
 
 
-def fetch_standings(
-    season: str,
-    season_type: str = "Regular Season",
-    retries: int = 3,
-    timeout: int = 60,
-) -> pd.DataFrame:
-    """Call the standings endpoint and return the raw DataFrame (all columns).
-
-    stats.nba.com is flaky and sometimes blocks cloud IP ranges, so retry with
-    backoff and fail loudly instead of writing an empty table.
-    """
-    from nba_api.stats.endpoints import leaguestandingsv3
-
+def fetch_scoreboard(day: date, retries: int = 3, timeout: int = 20) -> list[dict]:
+    """Return the raw ESPN `events` (games) for one calendar day (US dates)."""
     last_error: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
-            resp = leaguestandingsv3.LeagueStandingsV3(
-                season=season, season_type=season_type, timeout=timeout
+            resp = requests.get(
+                SCOREBOARD_URL, params={"dates": day.strftime("%Y%m%d")}, timeout=timeout
             )
-            df = resp.standings.get_data_frame()
-            if df.empty:
-                raise ValueError(f"Endpoint returned no rows for {season} / {season_type}")
-            return df
-        except Exception as exc:  # network errors, timeouts, bad JSON
+            resp.raise_for_status()
+            return resp.json().get("events", [])
+        except Exception as exc:  # network errors, timeouts, bad JSON, HTTP errors
             last_error = exc
             if attempt < retries:
-                time.sleep(2**attempt)
+                time.sleep(attempt)
     raise RuntimeError(
-        f"Failed to fetch {ENDPOINT} for {season} / {season_type} after {retries} attempts: {last_error}"
+        f"Failed to fetch ESPN scoreboard for {day} after {retries} attempts: {last_error}"
     ) from last_error
 
 
-def to_bronze_rows(
-    df: pd.DataFrame,
-    season: str,
-    season_type: str,
-    ingested_at: datetime | None = None,
-) -> list[tuple]:
-    """Turn the raw frame into bronze rows: metadata + the untouched row as JSON.
+def fetch_range(start: date, end: date, max_workers: int = 6) -> dict[date, list[dict]]:
+    """Fetch every day in [start, end]. Fails fast if ESPN is unreachable."""
+    days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
+    # Probe one day first so a blocked network fails in seconds, not minutes.
+    result = {days[0]: fetch_scoreboard(days[0])}
+    rest = days[1:]
+    if not rest:
+        return result
 
-    Keeping the full payload as JSON means bronze never breaks if NBA.com adds,
-    removes or renames columns; silver is where we pick fields and enforce types.
+    pool = ThreadPoolExecutor(max_workers=max_workers)
+    try:
+        futures = {pool.submit(fetch_scoreboard, d): d for d in rest}
+        for fut in as_completed(futures):
+            result[futures[fut]] = fut.result()
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return result
+
+
+def to_bronze_rows(
+    day: date, events: list[dict], ingested_at: datetime | None = None
+) -> list[tuple]:
+    """One bronze row per game: metadata + the untouched ESPN event as JSON.
+
+    Keeping the full payload as JSON means bronze never breaks when ESPN adds
+    or renames fields; silver is where we pick fields and enforce types.
     """
     ingested_at = ingested_at or datetime.now(timezone.utc)
-    # df.to_json maps NaN -> null; round-trip so each row becomes its own JSON string.
-    records = json.loads(df.to_json(orient="records", date_format="iso"))
-    return [
-        (season, season_type, ENDPOINT, ingested_at, json.dumps(rec))
-        for rec in records
-    ]
+    return [(day, ENDPOINT, str(ev["id"]), ingested_at, json.dumps(ev)) for ev in events]

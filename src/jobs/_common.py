@@ -10,6 +10,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--catalog", required=True, help="Unity Catalog catalog to write to")
-    p.add_argument("--season", default="2025-26", help="NBA season, e.g. 2025-26")
-    p.add_argument("--season-type", default="Regular Season")
+    p.add_argument(
+        "--days-back",
+        type=int,
+        default=2,
+        help="bronze only: fetch games from this many days ago up to today",
+    )
     return p.parse_args()

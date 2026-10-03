@@ -1,5 +1,4 @@
-pandas>=2.2
+requests>=2.32
 pytest>=8.0
-nba_api>=1.10
 databricks-sdk>=0.40
 databricks-connect>=15.4,<16
